@@ -36,6 +36,14 @@ def twi(input_folder:str='INPUT',output_folder:str="OUTPUT",export_image:bool=Fa
 
 
 
-
 if __name__ == "__main__":
-    twi(export_image=True)  
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        twi()  
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

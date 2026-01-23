@@ -119,3 +119,14 @@ def wui(input_road, input_clc, file_name:str='IUF_Risk_Map',
     
     return out_img
         
+if __name__ == "__main__":
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        wui()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

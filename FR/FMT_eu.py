@@ -89,3 +89,15 @@ def fmt(input_file:str|Path,output_folder=Path('OUTPUT') ,file_name:str='FMT',
         save_file(fmt_final, file_name, output_folder, meta, extensions=['tif','png'], fig=fig1,meta_intact=True)
 
     return fmt_final
+
+if __name__ == "__main__":
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        fmt()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

@@ -208,22 +208,13 @@ def check_valid_entries(
     input_folder: Path | str = Path("INPUT"),
     satellite: Literal["Sentinel-2"] = "Sentinel-2",
 ) -> tuple[list[SceneEntry], list[SceneEntry]]:
-    """_summary_
-
-    Args:
-        bands (list[str]): _description_
-        input_folder (Path | str, optional): _description_. Defaults to Path("INPUT").
-        satellite (Literal[&quot;Sentinel, optional): _description_. Defaults to "Sentinel-2".
-
-    Raises:
-        NotImplementedError: _description_
-        ValueError: _description_
-        FileNotFoundError: _description_
-        FileNotFoundError: _description_
-
-    Returns:
-        tuple[list[SceneEntry], list[SceneEntry]]: _description_
     """
+    Validate and group Sentinel-2 TIFF files by temporal scene.
+
+    Each scene is defined by (fecha_inicio, fecha_fin, satelite, nivel).
+    A scene is considered complete if all required bands are present.
+    """
+
     if satellite != "Sentinel-2":
         raise NotImplementedError(f"Satellite '{satellite}' not implemented.")
 
@@ -240,17 +231,23 @@ def check_valid_entries(
 
     for path in files:
         parsed = parse_filename(path.name)
-        band = parsed["banda"]
 
+        if parsed.satelite != satellite:
+            continue
+
+        band = parsed.banda
         if band not in required_bands:
             continue
 
         key = (
-            parsed["fecha_inicio"],
-            parsed["fecha_fin"],
-            parsed["satelite"],
-            parsed["nivel"],
+            parsed.fecha_inicio,
+            parsed.fecha_fin,
+            parsed.satelite,
+            parsed.nivel,
         )
+
+        if band in scenes[key]:
+            raise ValueError(f"Duplicate band {band} for scene {key}")
 
         scenes[key][band] = path
 
@@ -267,17 +264,15 @@ def check_valid_entries(
             archivos=band_map,
         )
 
-        if missing:
-            incomplete.append(entry)
-        else:
-            complete.append(entry)
+        (incomplete if missing else complete).append(entry)
 
     if not complete:
-        raise FileNotFoundError(
+        raise ValueError(
             f"No complete scenes found for required bands {bands}"
         )
 
     return complete, incomplete
+
 
 def read_and_group(entries: list[SceneEntry]) -> dict:
     """_summary_

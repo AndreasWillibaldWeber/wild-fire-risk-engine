@@ -103,5 +103,15 @@ def NDVI_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',export_image
             fig1,ax1=default_imshow(reclasificado_i,'NDVI Risk Map')
             save_file(reclasificado_i, extra_info, output_folder, meta_ref_i, 'NDVI_Risk_Map',extensions=['tif','tiff','png'], fig=fig1)
            
+
 if __name__ == "__main__":
-    NDVI_folder(export_image=True)
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        NDVI_folder()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

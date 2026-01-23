@@ -66,3 +66,14 @@ def NDMI_folder(input_folder:str='INPUT',output_folder:str="OUTPUT",export_image
     
     return ndmi
 
+if __name__ == "__main__":
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        NDMI_folder()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

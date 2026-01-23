@@ -144,10 +144,12 @@ def infrastructure(input_infra: str|Path,
     return raster_data
 
 
-import cProfile
-import pstats
 
 if __name__=='__main__':
+    
+    import cProfile
+    import pstats
+
     with cProfile.Profile() as profile:
         infrastructure(r'INPUT\infraestructuras_gal.shp',
             export_image=False)
@@ -155,4 +157,4 @@ if __name__=='__main__':
     results = pstats.Stats(profile)
     results.sort_stats(pstats.SortKey.TIME)
     results.print_stats(20)
-    # results.dump_stats("results.prof")
+

@@ -95,3 +95,15 @@ def mdt(ruta_mdt,output_folder:str|Path=Path('OUTPUT'),
 
     print("MDT, SLOPE and ASPECT Layers completed.")
     return mdt_re, slope_re, aspect_re
+
+if __name__ == "__main__":
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        mdt()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

@@ -123,7 +123,7 @@ def Fhist(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OU
         Returns:
             Tupla (imagen enmascarada, transformada, metadatos)
         """
-        year = parse_filename(pre_b8.name)['fecha_inicio'].year
+        year = parse_filename(pre_b8.name).fecha_inicio.year
         
         # Reproyectar bandas
         nir_pre, meta_pre = reproject_raster(pre_b8)
@@ -223,5 +223,14 @@ def Fhist(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OU
 
 
 if __name__ == "__main__":
-    Fhist()
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        Fhist()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)
 

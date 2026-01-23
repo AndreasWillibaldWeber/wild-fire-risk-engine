@@ -181,3 +181,15 @@ def f_w_index(input_folder:str|Path,file_name:str='FWI_Risk_Map',output_folder:P
     print("Fire Weather Index Layer completed.")
 
     return fwi_clas
+
+if __name__ == "__main__":
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        f_w_index(r'INPUT/FWI')
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)

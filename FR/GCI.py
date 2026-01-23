@@ -71,6 +71,15 @@ def GCI_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',export_image:
             fig1,ax1=default_imshow(gci_i,'GCI')
             save_file(gci_i, extra_info, output_folder, meta_ref_i, 'TWI',extensions=['tif','tiff','png'], fig=fig1)
 
-
 if __name__ == "__main__":
-    GCI_folder(export_image=True)
+
+    import cProfile
+    import pstats
+
+    with cProfile.Profile() as profile:
+        GCI_folder()
+
+    results = pstats.Stats(profile)
+    results.sort_stats(pstats.SortKey.TIME)
+    results.print_stats(20)
+
