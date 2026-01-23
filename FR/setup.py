@@ -154,7 +154,7 @@ def band_date_sort(file:str):
     """
     if info:=parse_filename(file):
         # print(info.group('banda'),info.group('fecha_inicio'))
-        return (info['satelite'],info['banda'],info['fecha_inicio'])
+        return (info.satelite,info.banda,info.fecha_inicio)
     else:
         raise ValueError(f"Filename '{file}' does not match expected pattern.")
 
@@ -197,7 +197,7 @@ def sort_time_comparative(band_folder:Path|None=None,date_format:str="%Y-%m-%d-%
 
         if prev_data and post_data:
 
-            if prev_data['banda'] != post_data['banda']:
+            if prev_data.banda != post_data.banda:
                 raise ValueError(f"Mismatched bands: \n{prev_fire} \n and \n{post_fire} do not belong to the same band.")
 
             shutil.move(band_folder/prev_fire,pre_fire_folder/prev_fire)
