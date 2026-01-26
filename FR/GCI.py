@@ -13,18 +13,18 @@ from FR.rutinas.setup import (
 from pathlib import Path
 
 def gci(b3:str|Path,b8:str|Path,output_folder:str='OUTPUT',
-        export_image:bool=False,show_plots:bool=False)->None:
-    """_summary_
+        export_image:bool=False,show_plots:bool=False)->np.ndarray:
+    """Calculate GCI (Green Chlorophyll Index) from Sentinel-2 bands.
 
     Args:
-        b3 (str | Path): _description_
-        b8 (str | Path): _description_
-        output_folder (str, optional): _description_. Defaults to 'OUTPUT'.
-        show_plots (bool, optional): _description_. Defaults to False.
-        export_image (bool, optional): _description_. Defaults to False.
+        b3: Path to Band 3 (Green) raster file
+        b8: Path to Band 8 (NIR) raster file
+        output_folder: Output directory for exported files. Defaults to 'OUTPUT'
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
+        show_plots: Whether to display matplotlib plots. Defaults to False
 
     Returns:
-        _type_: _description_
+        GCI array as numpy ndarray
     """
     b3=Path(b3)
     b8=Path(b8)
@@ -52,13 +52,14 @@ def gci(b3:str|Path,b8:str|Path,output_folder:str='OUTPUT',
 
     return gci
 
-def GCI_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',indices:None|list[int]=None,export_image:bool=False)->None:
-    """_summary_
+def gci_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',indices:None|list[int]=None,export_image:bool=False)->None:
+    """Process multiple Sentinel-2 scenes to calculate GCI for each.
 
     Args:
-        input_folder (str, optional): _description_. Defaults to 'INPUT'.
-        output_folder (str, optional): _description_. Defaults to 'OUTPUT'.
-        export_image (bool, optional): _description_. Defaults to False.
+        input_folder: Directory containing Sentinel-2 TIFF files. Defaults to 'INPUT'
+        output_folder: Output directory for results. Defaults to 'OUTPUT'
+        indices: List of scene indices to process. None processes all scenes
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
     """
 
     valids,_=check_valid_entries(["B03","B08"],input_folder=input_folder)
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     import pstats
 
     with cProfile.Profile() as profile:
-        GCI_folder()
+        gci_folder()
 
     results = pstats.Stats(profile)
     results.sort_stats(pstats.SortKey.TIME)

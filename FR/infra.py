@@ -42,28 +42,31 @@ def _create_risk_rings(geometry: BaseGeometry, radii: list[int], risks: list[int
 def infrastructure(input_infra: str|Path,
                    output_folder: str|Path = Path('OUTPUT'),
                    ref_raster: str|Path = Path(r'REFERENCE\MDT\DEM_NationalScenario_2013.tif'),
-                   epsg: int = 32629, 
+                   epsg: int = 32629,
                    export_image: bool = False,
-                   show_plots: bool = False,     
-                   simplify: bool = False, 
+                   show_plots: bool = False,
+                   simplify: bool = False,
                    tolerance: int = 10) -> npt.NDArray:
-    """_summary_
+    """Calculate infrastructure proximity risk from roads and railways.
+
+    Creates concentric buffer rings around infrastructure features and assigns
+    decreasing risk values (5 to 1) based on distance (250m to 1250m).
 
     Args:
-        input_infra (str | Path): _description_
-        output_folder (str | Path, optional): _description_. Defaults to Path('OUTPUT').
-        ref_raster (str, optional): _description_. Defaults to Path('REFERENCE/MDT/DEM_NationalScenario_2013.tif').
-        epsg (int, optional): _description_. Defaults to 32629.
-        export_image (bool, optional): _description_. Defaults to False.
-        show_plots (bool, optional): _description_. Defaults to False.
-        simplify (bool, optional): _description_. Defaults to False.
-        tolerance (int, optional): _description_. Defaults to 10.
-
-    Raises:
-        FileNotFoundError: _description_
+        input_infra: Path to infrastructure shapefile (roads/railways)
+        output_folder: Output directory for results. Defaults to 'OUTPUT'
+        ref_raster: Reference raster for extent and resolution. Defaults to DEM
+        epsg: Target CRS EPSG code. Defaults to 32629 (UTM 29N)
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
+        show_plots: Whether to display matplotlib plots. Defaults to False
+        simplify: Whether to simplify geometries for performance. Defaults to False
+        tolerance: Simplification tolerance in meters. Defaults to 10
 
     Returns:
-        npt.NDArray: _description_
+        Rasterized risk array with values 0-5 (0=no infrastructure nearby)
+
+    Raises:
+        FileNotFoundError: If input shapefile or reference raster not found
     """
     
     # Validar y convertir paths

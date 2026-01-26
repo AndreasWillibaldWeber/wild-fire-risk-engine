@@ -13,16 +13,16 @@ from FR.rutinas.setup import (
 from pathlib import Path
 
 def ndvi(b4:str|Path,b8:str|Path,output_folder:str='OUTPUT',export_image:bool=False)->tuple[np.ndarray,np.ndarray]:
-    """_summary_
+    """Calculate NDVI (Normalized Difference Vegetation Index) from Sentinel-2 bands.
 
     Args:
-        b4 (str | Path): _description_
-        b8 (str | Path): _description_
-        output_folder (str, optional): _description_. Defaults to 'OUTPUT'.
-        export_image (bool, optional): _description_. Defaults to False.
+        b4: Path to Band 4 (Red) raster file
+        b8: Path to Band 8 (NIR) raster file
+        output_folder: Output directory for exported files. Defaults to 'OUTPUT'
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
 
     Returns:
-        tuple[np.ndarray,np.ndarray]: _description_
+        Tuple of (ndvi_array, reclassified_risk_array) where risk is scaled 1-5
     """
 
     b4=Path(b4)
@@ -66,13 +66,14 @@ def ndvi(b4:str|Path,b8:str|Path,output_folder:str='OUTPUT',export_image:bool=Fa
 
     return ndvi,reclasificado
 
-def NDVI_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',indices:list[int]|None=None,export_image:bool=False)->None:
-    """_summary_
+def ndvi_folder(input_folder:str='INPUT',output_folder:str='OUTPUT',indices:list[int]|None=None,export_image:bool=False)->None:
+    """Process multiple Sentinel-2 scenes to calculate NDVI for each.
 
     Args:
-        input_folder (str, optional): _description_. Defaults to 'INPUT'.
-        output_folder (str, optional): _description_. Defaults to 'OUTPUT'.
-        export_image (bool, optional): _description_. Defaults to False.
+        input_folder: Directory containing Sentinel-2 TIFF files. Defaults to 'INPUT'
+        output_folder: Output directory for results. Defaults to 'OUTPUT'
+        indices: List of scene indices to process. None processes all scenes
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
     """
     bandas_requeridas=["B04","B08"]
 
@@ -125,7 +126,7 @@ if __name__ == "__main__":
     import pstats
 
     with cProfile.Profile() as profile:
-        NDVI_folder(export_image=True)
+        ndvi_folder(export_image=True)
 
     results = pstats.Stats(profile)
     results.sort_stats(pstats.SortKey.TIME)

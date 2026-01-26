@@ -11,16 +11,19 @@ from pathlib import Path
 def mdt(ruta_mdt,output_folder:str|Path=Path('OUTPUT'),
         export_image=False,
         show_plots=True) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """_summary_
+    """Calculate terrain risk layers from Digital Elevation Model (DEM).
+
+    Derives three risk layers from DEM: elevation (MDT), slope, and aspect.
+    Each layer is reclassified into fire risk categories (1-5).
 
     Args:
-        ruta_mdt (_type_): _description_
-        output_folder (str | Path, optional): _description_. Defaults to Path('OUTPUT').
-        export_image (bool, optional): _description_. Defaults to False.
-        show_plots (bool, optional): _description_. Defaults to True.
+        ruta_mdt: Path to the DEM/DTM raster file
+        output_folder: Output directory for results. Defaults to 'OUTPUT'
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
+        show_plots: Whether to display matplotlib plots. Defaults to True
 
     Returns:
-        tuple[np.ndarray, np.ndarray, np.ndarray]: _description_
+        Tuple of (mdt_risk, slope_risk, aspect_risk) arrays with values 1-5
     """
     
     # XXX: Hay dos parametros de salida que no se usan: ruta_slope, ruta_aspect

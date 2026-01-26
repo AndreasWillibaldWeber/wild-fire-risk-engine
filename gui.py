@@ -7,8 +7,8 @@ Instalación:
 import questionary
 
 from FR.rutinas.setup import check_valid_entries
-from FR.GCI import GCI_folder
-from FR.NDVI import NDVI_folder
+from FR.GCI import gci_folder
+from FR.NDVI import ndvi_folder
 
 from pathlib import Path
 from rich.console import Console
@@ -287,14 +287,14 @@ def single_case_menu():
             inputs=["B03","B08"]
 
             chosen_intervals_idxs = band_calc_info(inputs)
-            GCI_folder(input_folder=carpeta_entrada,output_folder=carpeta_salida,indices=chosen_intervals_idxs,export_image=True)
+            gci_folder(input_folder=carpeta_entrada,output_folder=carpeta_salida,indices=chosen_intervals_idxs,export_image=True)
 
         
         elif opcion == "opcion2":
             inputs=["B04","B08"]
 
             chosen_intervals_idxs = band_calc_info(inputs)
-            NDVI_folder(input_folder=carpeta_entrada,output_folder=carpeta_salida,indices=chosen_intervals_idxs,export_image=True)
+            ndvi_folder(input_folder=carpeta_entrada,output_folder=carpeta_salida,indices=chosen_intervals_idxs,export_image=True)
         
         elif opcion == "opcion3":
             inputs=["B08","B11"]

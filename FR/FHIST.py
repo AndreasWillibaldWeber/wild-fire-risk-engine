@@ -22,21 +22,23 @@ from rasterio.io import MemoryFile
 BUFFER_SIZE=660
 BURNED_THRESHOLD=0.27
 
-def Fhist(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OUTPUT'),export_image: bool=False,show_plots:bool=False) -> tuple[np.ndarray, np.ndarray]:
-    """_summary_
+def fire_history(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OUTPUT'),export_image: bool=False,show_plots:bool=False) -> tuple[np.ndarray, np.ndarray]:
+    """Analyze historical fire events using dNBR (differenced Normalized Burn Ratio).
+
+    Compares pre-fire and post-fire Sentinel-2 imagery to detect burned areas,
+    accumulates changes across multiple fire events, and reclassifies into risk levels.
 
     Args:
-        input_folder (str | Path, optional): _description_. Defaults to Path('INPUT').
-        output_folder (str | Path, optional): _description_. Defaults to Path('OUTPUT').
-        export_image (bool, optional): _description_. Defaults to False.
-        show_plots (bool, optional): _description_. Defaults to False.
-
-    Raises:
-        ValueError: _description_
-        ValueError: _description_
+        input_folder: Directory containing pre/post fire Sentinel-2 TIFF files
+        output_folder: Output directory for results. Defaults to 'OUTPUT'
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
+        show_plots: Whether to display matplotlib plots. Defaults to False
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: _description_
+        Tuple of (cumulative_burn_sum, reclassified_risk_array) with risk scaled 1-5
+
+    Raises:
+        ValueError: If historical data cannot be calculated or metadata is missing
     """
     input_folder = Path(input_folder)
     output_folder = Path(output_folder)
@@ -73,28 +75,28 @@ def Fhist(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OU
     # print(prev_files_dict)
 
     def _calculate_nbr(nir: np.ndarray, swir: np.ndarray) -> np.ndarray:
-        """_summary_
+        """Calculate Normalized Burn Ratio (NBR) from NIR and SWIR bands.
 
         Args:
-            nir (np.ndarray): _description_
-            swir (np.ndarray): _description_
+            nir: Near-infrared band array (B8A)
+            swir: Short-wave infrared band array (B12)
 
         Returns:
-            np.ndarray: _description_
+            NBR array with values in range [-1, 1]
         """
         np.seterr(divide='ignore', invalid='ignore')
         return (nir - swir) / (nir + swir)
     
     def _apply_mask_to_raster(raster: np.ndarray, meta: dict, geometries: list) -> tuple[np.ndarray, rasterio.Affine]:
-        """_summary_
+        """Mask and crop raster to geometry bounds using in-memory processing.
 
         Args:
-            raster (np.ndarray): _description_
-            meta (dict): _description_
-            geometries (list): _description_
+            raster: 2D array to mask
+            meta: Rasterio metadata with CRS and transform
+            geometries: List of shapely geometries for masking
 
         Returns:
-            tuple[np.ndarray, rasterio.Affine]: _description_
+            Tuple of (masked_array, output_transform)
         """
         with MemoryFile() as memfile:
             with memfile.open(driver='GTiff', height=raster.shape[0], width=raster.shape[1], count=1,
@@ -105,13 +107,13 @@ def Fhist(input_folder:str|Path=Path('INPUT'), output_folder:str|Path = Path('OU
         return out_image, out_transform
     
     def _load_reference_geometries(year: int) -> list:
-        """_summary_
+        """Load and buffer historical fire perimeters for a given year.
 
         Args:
-            year (int): _description_
+            year: Year of historical fire data to load
 
         Returns:
-            list: _description_
+            List of dissolved buffered geometries for masking
         """
         historico = gpd.read_file(reference_folder/f'hist_{year}.shp')
         buff = historico.geometry.buffer(BUFFER_SIZE)
@@ -235,7 +237,7 @@ if __name__ == "__main__":
     import pstats
 
     with cProfile.Profile() as profile:
-        Fhist()
+        fire_history()
 
     results = pstats.Stats(profile)
     results.sort_stats(pstats.SortKey.TIME)
