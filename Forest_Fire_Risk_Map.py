@@ -20,9 +20,6 @@ import FR.FWI as Fwi
 import FR.cropped as Cropped
 from FR.ahp import normalize_matrix, calculate_weights, consistency_ratio
 
-
-#viva la vida
-
 # Rutas de entrada (comentadas: descomentar para ejecutar cada función individualmente)
 #Mdt.mdt(r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\DTM\DTM.tif',
 #        r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\DTM\SLOPE.tif',
