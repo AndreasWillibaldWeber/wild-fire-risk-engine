@@ -3,77 +3,96 @@ import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
 
-from FR.rutinas.setup import *
-from pathlib import Path
+def Ndmi(input_band8, input_band11):
+    print('NDMI Layer processing...')
 
-def ndmi(b8:str|Path,b11:str|Path,output_folder:str='OUTPUT',export_image:bool=False)->None:
-    """_summary_
+    with rasterio.open(input_band8) as b8_src:
+        nir_band = b8_src.read(1).astype('float32')
+        meta_ref = b8_src.meta.copy()
 
-    Args:
-        b11 (str | Path): _description_
-        b8 (str | Path): _description_
-        output_folder (str, optional): _description_. Defaults to 'OUTPUT'.
-        export_image (bool, optional): _description_. Defaults to False.
-
-    Returns:
-        _type_: _description_
-    """
-    b8=Path(b8)
-    b11=Path(b11)
+    with rasterio.open(input_band11) as b11_src:
+        swir_band = b11_src.read(1).astype('float32')
 
     np.seterr(divide='ignore', invalid='ignore')
+    ndmi = (nir_band - swir_band) / (nir_band + swir_band)
 
-    with rasterio.open(b11) as src_b11:
-        band11 = src_b11.read(1).astype('float32')
-        meta_ref = src_b11.meta.copy()
-    with rasterio.open(b8) as src_b8:
-        band8 = src_b8.read(1).astype('float32')
-    
-    mini_info=parse_filename(b11.name)
-    name_id=mini_info.id
+    # Reclasificación:
+    # valores bajos de NDMI = menos humedad = más riesgo
+    reclasificado = np.zeros_like(ndmi, dtype='int32')
+    reclasificado[ndmi <= -0.20] = 5
+    reclasificado[(ndmi > -0.20) & (ndmi <= 0.00)] = 4
+    reclasificado[(ndmi > 0.00) & (ndmi <= 0.20)] = 3
+    reclasificado[(ndmi > 0.20) & (ndmi <= 0.40)] = 2
+    reclasificado[ndmi > 0.40] = 1
 
-    ndmi = (band8 - band11) / ( band8 + band11 )
-    
-    if export_image:
-        fig1,ax1=default_imshow(ndmi,'ndmi')
-        save_file(ndmi, name_id, output_folder, meta_ref, 'NDMI',extensions=['tif','tiff','png'], fig=fig1)
+    while True:
+        choice = input("¿Deseas guardar las imágenes? (y/n): ").lower().strip()
+        if choice in ('y', 'n'):
+            break
+        print("Entrada no válida. Introduce 'y' o 'n'")
 
-    return ndmi
+    if choice == 'y':
+        tiff_dir = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
+        png_dir = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\NDMI'
+        os.makedirs(tiff_dir, exist_ok=True)
+        os.makedirs(png_dir, exist_ok=True)
 
-def NDMI_folder(input_folder:str='INPUT',output_folder:str="OUTPUT",export_image:bool=False)->np.ndarray:
-    """_summary_
+        # Guardar NDMI continuo
+        meta_ndmi = meta_ref.copy()
+        meta_ndmi.update(driver='GTiff', dtype='float32', count=1)
+        ndmi_tiff = os.path.join(tiff_dir, 'ndmi.tiff')
+        ndmi_tif = os.path.join(tiff_dir, 'ndmi.tif')
 
-    Args:
-        input_folder (str, optional): _description_. Defaults to 'INPUT'.
-        output_folder (str, optional): _description_. Defaults to "OUTPUT".
-        export_image (bool, optional): _description_. Defaults to False.
-    """
+        with rasterio.open(ndmi_tiff, 'w', **meta_ndmi) as dst:
+            dst.write(ndmi.astype('float32'), 1)
+        with rasterio.open(ndmi_tif, 'w', **meta_ndmi) as dst:
+            dst.write(ndmi.astype('float32'), 1)
 
-    valids,_=check_valid_entries(["B08","B11"],input_folder=input_folder)
+        # Guardar reclasificado
+        meta_recl = meta_ref.copy()
+        meta_recl.update(driver='GTiff', dtype='int32', count=1)
+        recl_tiff = os.path.join(tiff_dir, 'ndmi_risk_map.tiff')
+        recl_tif = os.path.join(tiff_dir, 'ndmi_risk_map.tif')
 
-    info=read_and_group(valids)
+        with rasterio.open(recl_tiff, 'w', **meta_recl) as dst:
+            dst.write(reclasificado.astype('int32'), 1)
+        with rasterio.open(recl_tif, 'w', **meta_recl) as dst:
+            dst.write(reclasificado.astype('int32'), 1)
 
-    np.seterr(divide='ignore', invalid='ignore')
+        # Guardar PNGs
+        plt.figure(figsize=(8, 6))
+        plt.imshow(ndmi, cmap='RdYlGn')
+        plt.colorbar()
+        plt.title('NDMI')
+        plt.tight_layout()
+        plt.savefig(os.path.join(png_dir, 'ndmi.png'), dpi=300, bbox_inches='tight')
+        plt.close()
 
-    ndmi = np.array([(info['B08'][i] - info['B11'][i]) / (info['B08'][i] + info['B11'][i]) 
-            for i in range(len(info['id'])) ])
+        plt.figure(figsize=(8, 6))
+        plt.imshow(reclasificado, cmap='Reds')
+        plt.colorbar()
+        plt.title('NDMI Risk Map')
+        plt.tight_layout()
+        plt.savefig(os.path.join(png_dir, 'ndmi_risk_map.png'), dpi=300, bbox_inches='tight')
+        plt.close()
 
-    if export_image:
+        print(f"Imágenes guardadas en:\n - Rasters: {tiff_dir}\n - PNGs: {png_dir}")
+    else:
+        print("Imágenes no guardadas")
 
-        for ndm_i,meta_ref_i,extra_info in zip(ndmi,info['meta_ref'],info['id']):
-            fig1,ax1=default_imshow(ndm_i,'NDMI')
-            save_file(ndm_i, extra_info, output_folder, meta_ref_i, 'NDMI',extensions=['tif','tiff','png'], fig=fig1)
-    
-    return ndmi
+    plt.figure(figsize=(8, 6))
+    plt.imshow(ndmi, cmap='RdYlGn')
+    plt.colorbar()
+    plt.title('NDMI')
+    plt.tight_layout()
+    plt.show()
 
-if __name__ == "__main__":
+    plt.figure(figsize=(8, 6))
+    plt.imshow(reclasificado, cmap='Reds')
+    plt.colorbar()
+    plt.title('NDMI Risk Map')
+    plt.tight_layout()
+    plt.show()
 
-    import cProfile
-    import pstats
-
-    with cProfile.Profile() as profile:
-        NDMI_folder()
-
-    results = pstats.Stats(profile)
-    results.sort_stats(pstats.SortKey.TIME)
-    results.print_stats(20)
+    print('NDMI Layer completed')
+    return
