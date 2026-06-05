@@ -16,8 +16,7 @@ def Ndmi(input_band8, input_band11):
     np.seterr(divide='ignore', invalid='ignore')
     ndmi = (nir_band - swir_band) / (nir_band + swir_band)
 
-    # Reclasificación:
-    # valores bajos de NDMI = menos humedad = más riesgo
+    # Reclasification: assign values 1-5 for risk levels
     reclasificado = np.zeros_like(ndmi, dtype='int32')
     reclasificado[ndmi <= -0.20] = 5
     reclasificado[(ndmi > -0.20) & (ndmi <= 0.00)] = 4
@@ -26,10 +25,10 @@ def Ndmi(input_band8, input_band11):
     reclasificado[ndmi > 0.40] = 1
 
     while True:
-        choice = input("¿Deseas guardar las imágenes? (y/n): ").lower().strip()
+        choice = input("Do you want to save the images? (y/n): ").lower().strip()
         if choice in ('y', 'n'):
             break
-        print("Entrada no válida. Introduce 'y' o 'n'")
+        print("Invalid input. Please enter 'y' or 'n'")
 
     if choice == 'y':
         tiff_dir = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
@@ -37,7 +36,7 @@ def Ndmi(input_band8, input_band11):
         os.makedirs(tiff_dir, exist_ok=True)
         os.makedirs(png_dir, exist_ok=True)
 
-        # Guardar NDMI continuo
+        # Save NDMI continuous
         meta_ndmi = meta_ref.copy()
         meta_ndmi.update(driver='GTiff', dtype='float32', count=1)
         ndmi_tiff = os.path.join(tiff_dir, 'ndmi.tiff')
@@ -48,7 +47,7 @@ def Ndmi(input_band8, input_band11):
         with rasterio.open(ndmi_tif, 'w', **meta_ndmi) as dst:
             dst.write(ndmi.astype('float32'), 1)
 
-        # Guardar reclasificado
+        # Save reclassified
         meta_recl = meta_ref.copy()
         meta_recl.update(driver='GTiff', dtype='int32', count=1)
         recl_tiff = os.path.join(tiff_dir, 'ndmi_risk_map.tiff')
@@ -59,7 +58,7 @@ def Ndmi(input_band8, input_band11):
         with rasterio.open(recl_tif, 'w', **meta_recl) as dst:
             dst.write(reclasificado.astype('int32'), 1)
 
-        # Guardar PNGs
+        # Save PNGs
         plt.figure(figsize=(8, 6))
         plt.imshow(ndmi, cmap='RdYlGn')
         plt.colorbar()
@@ -76,9 +75,9 @@ def Ndmi(input_band8, input_band11):
         plt.savefig(os.path.join(png_dir, 'ndmi_risk_map.png'), dpi=300, bbox_inches='tight')
         plt.close()
 
-        print(f"Imágenes guardadas en:\n - Rasters: {tiff_dir}\n - PNGs: {png_dir}")
+        print(f"Images saved in:\n - Rasters: {tiff_dir}\n - PNGs: {png_dir}")
     else:
-        print("Imágenes no guardadas")
+        print("Images not saved")
 
     plt.figure(figsize=(8, 6))
     plt.imshow(ndmi, cmap='RdYlGn')

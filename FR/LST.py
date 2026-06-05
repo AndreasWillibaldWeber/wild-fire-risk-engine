@@ -4,13 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
-    print('Ejecutando capa LST...')
+    print('Executing LST layer...')
 
     while True:
-        save_answer = input("¿Deseas guardar las imágenes LST (y/n): ").strip().lower()
+        save_answer = input("Do you want to save the LST images? (y/n): ").strip().lower()
         if save_answer in ('y', 'n'):
             break
-        print("Introduce 'y' o 'n'.")
+        print("Invalid input. Please enter 'y' or 'n'.")
 
     save_outputs = (save_answer == 'y')
 
@@ -24,15 +24,16 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
 
     lst = np.where(~np.isfinite(lst), np.nan, lst)
 
-    # Filtrado físico básico para Kelvin
+    # Basic physical filtering for Kelvin
     valid = np.isfinite(lst) & (lst > 220.0) & (lst < 340.0)
     lst_clean = np.where(valid, lst, np.nan)
 
     if not np.any(valid):
-        raise ValueError("La capa LST no contiene valores válidos tras el filtrado.")
+        raise ValueError("The LST layer does not contain valid values after filtering.")
 
-    print('Ejecutando riesgo LST...')
+    print('Executing LST risk layer...')
 
+    #Reclasification by percentiles: assign values 1-5 for risk levels
     p20, p40, p60, p80 = np.percentile(lst_clean[valid], [20, 40, 60, 80])
 
     reclasificado = np.zeros_like(lst, dtype='int32')
@@ -41,7 +42,7 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
     reclasificado[(lst_clean > p40) & (lst_clean <= p60)] = 3
     reclasificado[(lst_clean > p60) & (lst_clean <= p80)] = 4
     reclasificado[(lst_clean > p80) & valid] = 5
-
+    
     out_dir_tif = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
     out_dir_png = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\LST'
 
@@ -51,7 +52,7 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
     if output_lst_risk is None:
         output_lst_risk = os.path.join(out_dir_tif, 'LST_risk_map.tif')
 
-    print('Mostrando capa LST...')
+    print('Showing LST layer...')
     plt.figure(figsize=(8, 6))
     plt.imshow(lst_clean, cmap='inferno')
     plt.colorbar(label='LST (K)')
@@ -66,7 +67,7 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
         plt.show()
     plt.close()
 
-    print('Mostrando riesgo LST...')
+    print('Showing LST risk layer...')
     plt.figure(figsize=(8, 6))
     plt.imshow(
         np.where(reclasificado == 0, np.nan, reclasificado),
@@ -74,7 +75,7 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
         vmin=1,
         vmax=5
     )
-    plt.colorbar(label='Riesgo LST (1=bajo, 5=alto)')
+    plt.colorbar(label='LST Risk (1=low, 5=high)')
     plt.title('LST Risk Map')
     plt.tight_layout()
 
@@ -87,7 +88,7 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
     plt.close()
 
     if save_outputs:
-        print('Guardando archivos LST...')
+        print('Saving LST files...')
         os.makedirs(out_dir_tif, exist_ok=True)
 
         meta_lst = meta_ref.copy()
@@ -102,10 +103,10 @@ def Lst(input_lst, output_lst=None, output_lst_risk=None, show_plots=True):
         with rasterio.open(output_lst_risk, 'w', **meta_recl) as dst:
             dst.write(reclasificado.astype('int32'), 1)
 
-        print(f"LST continua guardada en: {output_lst}")
-        print(f"LST reclasificada guardada en: {output_lst_risk}")
-        print(f"PNGs guardados en: {out_dir_png}")
+        print(f"LST continuous saved in: {output_lst}")
+        print(f"LST reclassified saved in: {output_lst_risk}")
+        print(f"PNGs saved in: {out_dir_png}")
     else:
-        print("Resultados no guardados. Solo se muestran por pantalla.")
+        print("Results not saved. Only displayed on screen.")
 
     print('LST Layer completed')

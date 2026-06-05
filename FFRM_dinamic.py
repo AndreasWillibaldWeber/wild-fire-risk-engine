@@ -1,20 +1,16 @@
-import sys
-# Asegúrate de que la ruta a tus módulos sea la correcta
-sys.path.append(r'C:\Users\Mateo G\Desktop\STORCITO\Codigos\FR_Gal\FR')
-
 import numpy as np
 import shutil
 import os
 import matplotlib.pyplot as plt
 
-# Importamos las herramientas de rasterio necesarias
+# Import the necessary rasterio tools
 from rasterio.fill import fillnodata
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import rasterio
 from rasterio.mask import mask
 from osgeo import gdal
 
-# Importamos tus módulos personalizados
+# Import personalized modules
 import FR.FMT_eu as Fmt
 import FR.MDT as Mdt
 import FR.IUF as Wui
@@ -28,50 +24,52 @@ import FR.cropped as Cropped
 from FR.ahp import normalize_matrix, calculate_weights, consistency_ratio
 
 # ==========================================
-# 1. GENERACIÓN DE CAPAS
+# 1. LAYER GENERATION
 # ==========================================
 
 # ---------------------------
-# 1.1. RUTAS DE ENTRADA
+# 1.1. INPUT PATHS
 # ---------------------------
 
-# Modelo digital del terreno
-input_mdt = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\DTM\DTM.tif'
-input_slope = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\DTM\SLOPE.tif'
-input_aspect = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\DTM\ASPECT.tif'
+base_dir = os.path.dirname(os.path.abspath(__file__))
 
-# TWI ya generado externamente
-input_twi = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\TWI\TWI.tif'
+# DTM
+input_mdt = os.path.join(base_dir, 'INPUT', 'DTM', 'DTM.tif')
+input_slope = os.path.join(base_dir, 'INPUT', 'DTM', 'SLOPE.tif')
+input_aspect = os.path.join(base_dir, 'INPUT', 'DTM', 'ASPECT.tif')
 
-# Sentinel
-sentinel_folder = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\Sentinel'
+# TWI
+input_twi = os.path.join(base_dir, 'INPUT', 'TWI', 'TWI.tif')
+
+# Sentinel for NDVI & NDMI
+sentinel_folder = os.path.join(base_dir, 'INPUT', 'Sentinel')
 input_b4 = os.path.join(sentinel_folder, 'B4.tiff')
 input_b8 = os.path.join(sentinel_folder, 'B8.tiff')
 input_b11 = os.path.join(sentinel_folder, 'B11.tiff')
 
-# Combustibles
-input_fmt = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\FUELS\FMT_NationalScenario_2019.tif'
+# Fuels
+input_fmt = os.path.join(base_dir, 'INPUT', 'FUELS', 'FMT_NationalScenario_2019.tif')
 
-# Infraestructura y WUI
-input_infra = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\INFRA\galicia_solo_vehiculos.shp'
-input_clc = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\IUF\CLC_galicia.shp'
+# Infraestructure & WUI
+input_infra = os.path.join(base_dir, 'INPUT', 'INFRA', 'galicia_solo_vehiculos.shp')
+input_clc = os.path.join(base_dir, 'INPUT', 'IUF', 'CLC_galicia.shp')
 
-# Meteorología
-input_fwi_folder = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\FWI'
-input_lst = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\LST\LST.tiff'
+# Meteorology
+input_fwi_folder = os.path.join(base_dir, 'INPUT', 'FWI')
+input_lst = os.path.join(base_dir, 'INPUT', 'LST', 'LST.tiff')
 
 # ---------------------------
-# 1.2. CARPETAS DE SALIDA
+# 1.2. OUTPUT FOLDERS
 # ---------------------------
 
-output_folder_re = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
-output_folder_cropped = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\Cropped'
+output_folder_re = os.path.join(base_dir, 'OUTPUT', 're')
+output_folder_cropped = os.path.join(base_dir, 'OUTPUT', 'Cropped')
 
 os.makedirs(output_folder_re, exist_ok=True)
 os.makedirs(output_folder_cropped, exist_ok=True)
 
 # ---------------------------
-# 1.3. RÁSTERES DE SALIDA BASE
+# 1.3. OUTPUT RASTERS
 # ---------------------------
 
 output_mdt = os.path.join(output_folder_re, 'MDT.tif')
@@ -88,20 +86,20 @@ output_fwi = os.path.join(output_folder_re, 'FWI.tif')
 output_lst = os.path.join(output_folder_re, 'LST.tif')
 
 # ---------------------------
-# 1.4. CONTROL DE EJECUCIÓN
+# 1.4. EXECUTION CONTROL
 # ---------------------------
 run_mdt = False
 run_twi = False
 run_ndvi = False
-run_ndmi = False
+run_ndmi = True
 run_fmt = False
 run_infra = False
 run_wui = False
 run_fwi = False
-run_lst = False
+run_lst = True
 
 # ---------------------------
-# 1.5. GENERACIÓN DE CAPAS
+# 1.5. LAYER GENERATION
 # ---------------------------
 
 if run_mdt:
@@ -115,24 +113,18 @@ if run_mdt:
     )
 
 if run_twi:
-    # Requiere versión unificada del módulo TWI:
-    # Twi(input_twi, output_twi)
     Twi.Twi(
         input_twi,
         output_twi
     )
 
 if run_ndvi:
-    # Requiere versión unificada del módulo NDVI:
-    # Ndvi(input_band4, input_band8, output_ndvi)
-    Ndvi.Ndvi(
+    Ndvi.ndvi(
         input_b4,
         input_b8
     )
 
 if run_ndmi:
-    # Requiere versión unificada del módulo NDMI:
-    # Ndmi(input_b8, input_b11, output_ndmi)
     Ndmi.Ndmi(
         input_b8,
         input_b11
@@ -168,8 +160,7 @@ if run_lst:
         raise FileNotFoundError(
             f"No se ha encontrado la capa LST en la ruta esperada: {input_lst}"
         )
-    # Llama al script LST.py para crear LST.tif y LST_risk_map.tif en 're\'
-    # La función Lst(...) es la que definimos en LST.py
+    # Call to LST.py script to create LST.tif & LST_risk_map.tif in 're\'folder
     Lst.Lst(
         input_lst,
         output_lst,                                   # LST continuo en Kelvin
@@ -180,20 +171,20 @@ if run_lst:
 print("Todas las capas base del caso dinámico generadas/disponibles en 're\\'.")
 
 # ==========================================
-# 2. RECORTE CON BUFFER (Carpeta Cropped)
+# 2. CROP WITH BUFFER (Cropped Folder)
 # ==========================================
-print("\nIniciando recorte de capas a la zona de estudio...")
-output_folder_re      = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
-output_folder_cropped = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\Cropped'
-shapefile_for_buffer  = r'C:\Users\Mateo G\Desktop\STORCITO\Fotos\shapefile\Galicia.shp'
+print("\nStarting crop of layers to the study area...")
+output_folder_re      = os.path.join(base_dir, 'OUTPUT', 're')
+output_folder_cropped = os.path.join(base_dir, 'OUTPUT', 'Cropped')
+shapefile_for_buffer  = os.path.join(base_dir, 'INPUT', 'shapefile', 'Galicia.shp')
 buffer_distance = 3000
 
 Cropped.cropped(output_folder_re, output_folder_cropped, shapefile_for_buffer, buffer_distance)
 
 # ==========================================
-# 3. ALINEACIÓN Y TRATAMIENTO LÓGICO DE HUECOS
+# 3. ALIGNMENT AND LOGICAL TREATMENT OF GAPS
 # ==========================================
-print("\nAlineando capas y procesando datos faltantes...")
+print("\nAligning layers and processing missing data...")
 
 def align_raster_with_resampling(source_path, reference_path):
     with rasterio.open(source_path) as src, rasterio.open(reference_path) as ref:
@@ -229,7 +220,7 @@ raster_paths = {
 
 reference_path = raster_paths['mdt']
 
-# Cargar la silueta maestra de Galicia (con el buffer de 3000m)
+# Load the master silhouette of Galicia: Galicia.shp (with 3000m buffer)
 with rasterio.open(reference_path) as ref:
     ref_data = ref.read(1)
     master_mask = ref_data > 0
@@ -238,15 +229,15 @@ aligned_layers = {}
 for key, path in raster_paths.items():
     data = align_raster_with_resampling(path, reference_path)
 
-    # 1. Estandarizar qué significa un "hueco" (pasarlos todos a np.nan temporalmente)
+    # 1. Standardize what a "gap" means (convert all to np.nan temporarily)
     if key in ['infra']:
         data_clean = np.where(data == -9999, np.nan, data)
     else:
         data_clean = np.where(data <= 0, np.nan, data)
 
-    # 2. Lógica de relleno según el tipo de capa
+    # 2. Logic for filling gaps based on layer type
     if key in ['ndvi', 'ndmi', 'meteo', 'lst', 'aspect']:
-        # Son huecos por error (nubes, bordes de malla). Interpolamos rápidamente.
+        # They are gaps due to error (clouds, mesh edges). We interpolate quickly.
         valid_mask = ~np.isnan(data_clean)
         data_filled = fillnodata(
             data_clean,
@@ -254,21 +245,21 @@ for key, path in raster_paths.items():
             max_search_distance=25.0,
             smoothing_iterations=0
         )
-        # Asegurar que no queden NaNs residuales
+        # Ensure no residual NaNs remain
         data_filled = np.nan_to_num(data_filled, nan=0.0)
     else:
-        # Son huecos de realidad (no hay WUI, no hay combustible). Riesgo 0.
+        # They are real gaps (no WUI, no fuel). Risk 0.
         data_filled = np.nan_to_num(data_clean, nan=0.0)
 
-    # 3. Cortar estrictamente a la máscara maestra
+    # 3. Strictly cut to the master mask
     data_final = np.where(master_mask, data_filled, 0)
     aligned_layers[key] = data_final
-    print(f" - Capa '{key}' procesada. Dimensiones: {data_final.shape}")
+    print(f" - Layer '{key}' processed. Dimensions: {data_final.shape}")
 
 # ==========================================
-# 4. AHP (Proceso de Análisis Jerárquico)
+# 4. AHP (Analytic Hierarchy Process)
 # ==========================================
-print("\nCalculando pesos AHP y sumando capas...")
+print("\nCalculating AHP weights and summing layers...")
 
 vegetation_matrix = np.array([
     [1, 3, 5],
@@ -303,10 +294,10 @@ meteo_topic = sum(aligned_layers[k] * w for k, w in zip(["meteo", "lst"], we_met
 
 final_layers = [topo_topic, veg_topic, ai_topic, meteo_topic]
 comparison_matrix = np.array([
-    [1,   1/4, 1/2, 1/3],
-    [4,   1,   3,   2],
-    [2,   1/3, 1,   1/3],
-    [3,   1/2, 3,   1]
+    [1,   1/4, 1/2, 1/3], # Topography
+    [4,   1,   3,   2],   # Vegetation
+    [2,   1/3, 1,   1/3], # Socioeconomics (AI)
+    [3,   1/2, 3,   1]    # Meteorology (FWI & LST)
 ])
 
 final_weights = calculate_weights(normalize_matrix(comparison_matrix))
@@ -316,38 +307,38 @@ print(f'CR de la matriz principal: {cr:.4f}')
 print("La matriz es consistente." if cr < 0.1 else "La matriz no es consistente.")
 
 # ==========================================
-# 5. MAPA DE RIESGO FINAL Y GUARDADO
+# 5. FINAL RISK MAP AND SAVING
 # ==========================================
-print("\nGenerando y clasificando el mapa final...")
+print("\nGenerating and classifying the final map...")
 fr_map = sum(layer * weight for layer, weight in zip(final_layers, final_weights))
 
 reference_profile = rasterio.open(reference_path).profile
 reference_profile.update(dtype='float32', count=1)
-output_path = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\mapa_final_dinamico.tif'
+output_path = os.path.join(base_dir, 'OUTPUT', 'mapa_final_dinamico.tif')
 
-# Guardar temporalmente el mapa en valores flotantes (riesgo continuo)
+# Temporarily save the map in floating values (continuous risk)
 with rasterio.open(output_path, 'w', **reference_profile) as dst:
     dst.write(fr_map.astype('float32'), 1)
 
-fr_final = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\forest_fire_risk_map_dinamico.tif'
+fr_final = os.path.join(base_dir, 'OUTPUT', 'forest_fire_risk_map_dinamico.tif')
 with rasterio.open(output_path) as mapa_final:
     forest_fire_final = mapa_final.read(1).astype('float32')
     fr_clasificado = np.zeros_like(forest_fire_final, dtype='float32')
 
-    # Clasificación de 1 a 5
+    # Classification from 1 to 5
     fr_clasificado[(forest_fire_final > 0) & (forest_fire_final <= 1)] = 1
     fr_clasificado[(forest_fire_final > 1) & (forest_fire_final <= 2)] = 2
     fr_clasificado[(forest_fire_final > 2) & (forest_fire_final <= 3)] = 3
     fr_clasificado[(forest_fire_final > 3) & (forest_fire_final <= 4)] = 4
     fr_clasificado[forest_fire_final > 4] = 5
 
-    # Reforzamos la limpieza de los bordes usando la máscara maestra
+    # We reinforce the cleaning of the edges using the master mask
     fr_clasificado[~master_mask] = 0
 
-    # Forzamos los valores 0 (fuera del mapa) a que sean transparentes para la visualización
+    # We force the 0 values (outside the map) to be transparent for visualization
     plot_data = np.where(fr_clasificado == 0, np.nan, fr_clasificado)
 
-    # Mostrar la imagen
+    # Show the image
     plt.figure(figsize=(10, 8))
     plt.imshow(plot_data, cmap='Reds', vmin=1, vmax=5)
     cbar = plt.colorbar(shrink=0.8)
@@ -357,21 +348,21 @@ with rasterio.open(output_path) as mapa_final:
     plt.tight_layout()
     plt.show()
 
-    # Guardar el mapa clasificado final
+    # Save the final classified map
     meta = mapa_final.profile
     meta.update(dtype='float32')
     with rasterio.open(fr_final, 'w', **meta) as dst:
         dst.write(fr_clasificado, 1)
 
-print(f"Mapa final guardado exitosamente en:\n '{fr_final}'")
+print(f"Final map saved successfully in:\n '{fr_final}'")
 
 # ==========================================
-# 6. LIMPIEZA DE CARPETA INTERMEDIA
+# 6. CLEANUP OF INTERMEDIATE FOLDER
 # ==========================================
-print("\nRealizando limpieza de archivos temporales...")
+print("\nPerforming cleanup of temporary files...")
 for folder in [output_folder_cropped]:
     if os.path.exists(folder):
         shutil.rmtree(folder)
-        print(f" - Carpeta temporal eliminada: {folder}")
+        print(f" - Temporary folder deleted: {folder}")
 
-print("\n¡Proceso finalizado con éxito!")
+print("\nProcess completed successfully!")
