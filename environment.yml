@@ -20,3 +20,4 @@ dependencies:
   - uvicorn
   - gunicorn
   - httpx
+  - earthaccess
