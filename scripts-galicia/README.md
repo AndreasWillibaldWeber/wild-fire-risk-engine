@@ -1,108 +1,110 @@
 # scripts-galicia — Galicia recurring data pipeline
 
-Downloads the two **time-varying** wildfire inputs for the **Galicia** region
-only and loads them into the existing PostGIS tables with region + date
-metadata:
+A single Python CLI ([galicia.py](galicia.py)) that downloads the two
+**time-varying** wildfire inputs for the **Galicia** region and loads them into
+the existing PostGIS tables with region + date metadata:
 
-| Dataset | Source | Cadence | Tables | Metadata added |
+| Dataset | Source | Cadence | Tables | Metadata |
 |---|---|---|---|---|
-| Sentinel-2 B04/B08/B8A/B11 | Copernicus Sentinel Hub Process API | **weekly** | `s2_b04`, `s2_b08`, `s2_b8a`, `s2_b11` | `region`, `date_from`, `date_to` |
-| MeteoGalicia WRF (FWI meteo) | MeteoGalicia THREDDS | **daily** | `fwi_<var>` | `region`, `fdate` |
+| Sentinel-2 B04/B08/B8A/B11 | Copernicus Sentinel Hub Process API | **weekly** | `s2_b04/b08/b8a/b11` | `region`, `date_from`, `date_to` |
+| MeteoGalicia WRF (FWI meteo) | MeteoGalicia THREDDS NCSS | **daily** | `fwi_<var>` | `region`, `fdate` |
 
-Static layers (DTM, fuels, borders, infrastructure, WUI) are **not** handled
-here — they live in `../scripts/` and rarely change.
+Rasters are loaded with PostGIS **`ST_FromGDALRaster`** over `psycopg2` — **no
+`raster2pgsql`**. The GeoTIFF bytes are sent to the server, turned into a raster,
+tiled to 256×256 and appended. Because the `INSERT` is ours, the region/date
+columns are populated in the same statement and there is no drop/recreate.
 
-The region is clipped to the exact **Galicia** polygon (`ST_Union` of
-`spain_autonomous_communities WHERE acom_name='Galicia'`); its bbox drives the
-download API requests. Sentinel rasters are additionally cut to the polygon;
-meteo keeps the WRF grid bbox so it stays aligned with the existing `fwi_*`
-tables.
+The region is the exact **Galicia** polygon (`ST_Union` of
+`spain_autonomous_communities WHERE acom_name='Galicia'`). Sentinel is clipped by
+passing that polygon as the Process API `bounds.geometry`; meteo keeps the WRF
+grid bbox so it stays aligned with the existing `fwi_*` tables.
 
-## Layout
+## Runtime
 
-```
-lib/common.sh                 shared helpers (repo root, env, docker compose, logging)
-export-galicia-aoi.sh         DB -> INPUT/AOI/galicia.geojson + galicia.bbox
-download-galicia-sentinel.sh  Process API over Galicia bbox + cutline clip
-load-galicia-sentinel.sh      append clipped bands into s2_* (+region/date range)
-galicia-sentinel-weekly.sh    cron entrypoint (last 7 days)
-download-galicia-meteo.sh     WRF nc for a date (Galicia bbox)
-load-galicia-meteo.sh         append nc vars into fwi_* (+region/fdate)
-galicia-meteo-daily.sh        cron entrypoint (yesterday)
-crontab.galicia               schedule
-.env.galicia.example          credentials/overrides template
+Runs **inside the `geotools` container** (it has the GDAL CLI + `psql`, reaches
+`postgis`, and is given the `PG*` env). The image needs two extra Python packages
+(`python3-psycopg2`, `python3-requests`) — already added to
+[`../Dockerfile.geotools`](../Dockerfile.geotools), so rebuild it:
+
+```bash
+docker compose build geotools && docker compose up -d
 ```
 
 ## Setup
 
-1. Copy the env template and fill in Copernicus OAuth credentials:
-   ```bash
-   cp scripts-galicia/.env.galicia.example scripts-galicia/.env.galicia
-   # edit SH_CLIENT_ID / SH_CLIENT_SECRET
-   # if your user is not in the docker group: set DOCKER="sudo docker"
-   ```
-   Create an OAuth client at
-   <https://shapps.dataspace.copernicus.eu/dashboard/> → User settings → OAuth clients.
+```bash
+cp scripts-galicia/.env.galicia.example scripts-galicia/.env.galicia
+# fill in SH_CLIENT_ID / SH_CLIENT_SECRET (Copernicus OAuth client)
+```
+`galicia.py` reads `.env.galicia` itself, so credentials never appear on the
+command line. DB credentials come from the container env. The base `s2_*`/`fwi_*`
+tables must already exist (one-time bulk load via `../scripts/load-ndxi.sh` and
+`../scripts/load-fwi.sh`); the script fails clearly otherwise.
 
-2. Make sure the stack is up (`make up`) so `geotools` + `postgis` are running.
-   The target tables must already exist (the scripts append into them): run the
-   initial bulk load once via `../scripts/load-ndxi.sh` (creates `s2_*`) and
-   `../scripts/load-fwi.sh` (creates `fwi_*`) if this is a fresh database.
+## Go live
 
-3. Host tools needed for the **download** step: `curl`, `jq`, `tar`
-   (the GDAL/raster2pgsql steps run inside the `geotools` container).
+```bash
+# 1. Rebuild geotools with the Python deps and (re)start the stack
+docker compose build geotools && docker compose up -d
+
+# 2. Verify the deps are present in the container
+docker compose exec -T geotools python3 -c "import psycopg2, requests; print('ok')"
+
+# 3. First loads (meteo = a recent day; sentinel needs .env.galicia creds)
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py export-aoi
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py meteo --date 2026-06-24
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py sentinel \
+    --date-from 2026-06-16 --date-to 2026-06-23
+
+# 4. Confirm rows landed (region/date metadata)
+docker compose exec -T postgis psql -U gis -d gis -c \
+  "select region, min(fdate), max(fdate), count(*) from fwi_temp where region='Galicia' group by 1;"
+docker compose exec -T postgis psql -U gis -d gis -c \
+  "select region, date_from, date_to, count(*) from s2_b04 where region='Galicia' group by 1,2,3;"
+
+# 5. Install the schedule (edit REPO in the file first)
+crontab scripts-galicia/crontab.galicia
+```
+
+If the runtime user is not in the `docker` group, prefix the `docker compose`
+commands with `sudo`.
 
 ## Manual runs
 
 ```bash
-# One-off AOI refresh
-scripts-galicia/export-galicia-aoi.sh
-
-# Meteo for a specific day
-scripts-galicia/galicia-meteo-daily.sh 2026-06-23
-
-# Sentinel for an explicit window
-DATE_FROM=2026-06-16 DATE_TO=2026-06-23 scripts-galicia/galicia-sentinel-weekly.sh
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py export-aoi
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py meteo --date 2026-06-24
+docker compose exec -T geotools python3 /data/scripts-galicia/galicia.py sentinel \
+    --date-from 2026-06-16 --date-to 2026-06-23
 ```
-
-All scripts are idempotent: re-running a date/window deletes the prior
-`region='Galicia'` rows for that date/window before re-loading.
+Defaults: `meteo` → yesterday (UTC); `sentinel` → last 7 days. All commands are
+idempotent (re-running a date/window deletes the prior `region='Galicia'` rows
+first).
 
 ## Scheduling
 
 ```bash
-# Edit REPO inside the file first, then:
+# edit REPO inside the file first
 crontab scripts-galicia/crontab.galicia
-# or append to your existing crontab:
-crontab -l | cat - scripts-galicia/crontab.galicia | crontab -
 ```
-Logs are written to `OUTPUT/logs/galicia-*.log`. The cron user must be able to
-run `docker compose` (docker group, or `DOCKER="sudo docker"` in `.env.galicia`
-with the matching sudoers rule).
+Logs go to `OUTPUT/logs/galicia-*.log`. The cron user must be able to run
+`docker compose` (docker group, or prefix the commands with `sudo`).
 
-## Querying the results
+## Querying
 
 ```sql
--- Latest Galicia Sentinel window present
-SELECT region, date_from, date_to, count(*)
-FROM s2_b04 WHERE region='Galicia'
-GROUP BY 1,2,3 ORDER BY date_to DESC;
-
--- Galicia meteo dates loaded
-SELECT region, min(fdate), max(fdate), count(*)
-FROM fwi_temp WHERE region='Galicia' GROUP BY 1;
+SELECT region, date_from, date_to, count(*) FROM s2_b04 WHERE region='Galicia' GROUP BY 1,2,3 ORDER BY date_to DESC;
+SELECT region, min(fdate), max(fdate), count(*) FROM fwi_temp WHERE region='Galicia' GROUP BY 1;
 ```
+Or via the API: `GET /db/raster/s2_b04`, `GET /db/raster/fwi_temp`.
 
 ## Notes / caveats
 
-- **Existing tables are reused.** To append the differently-aligned Galicia
-  rasters, `DropRasterConstraints` is called on the target tables first. Existing
-  whole-Spain rows are left untouched and are distinguished by `region` (NULL for
-  the original bulk load, `'Galicia'` for rows loaded here).
-- Sentinel history is retained per week (one set of rows per `date_from/date_to`).
-  Select the latest with `MAX(date_to)`. Prune old windows manually if needed.
-- `FR/db_reconstruct.py` exports these tables clipped to the request geometry, so
-  mixed-region rows coexist safely; a future refinement could filter
-  `WHERE region='Galicia'`.
-- Copernicus Process API quotas apply; MeteoGalicia history has limited
-  retention, so run the daily job within that window.
+- Appending into the existing `s2_*`/`fwi_*` tables requires dropping their raster
+  constraints (alignment/scale/extent), done automatically per load. Whole-Spain
+  rows are left untouched; rows are distinguished by `region` (`NULL` for the
+  original bulk load, `Galicia` here).
+- Sentinel history is retained per week (one set of rows per `date_from/date_to`);
+  select the latest with `MAX(date_to)`.
+- Copernicus Process API quotas apply; MeteoGalicia history has limited retention,
+  so run the daily job within that window.
