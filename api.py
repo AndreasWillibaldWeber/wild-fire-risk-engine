@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import zipfile
@@ -31,13 +32,30 @@ from rasterio.warp import transform_bounds, transform_geom
 from shapely.geometry import box, mapping, shape
 
 from FFRM_estatic_aoi import run_static_aoi, run_static_aoi_for_geometry
-from FR.aoi import build_geojson_aoi
+from FR.aoi import build_geojson_aoi, reproject_geometry, DEFAULT_PROJECTED_CRS
+from FR.db_reconstruct import reconstruct_inputs
 from FR.FWI import available_fwi_dates
 
 app = FastAPI(title="STORCITO API")
 BASE_DIR = Path(__file__).resolve().parent
 AOI_OUTPUT_ROOT = (BASE_DIR / "OUTPUT" / "aoi").resolve()
+JOBS_OUTPUT_ROOT = (BASE_DIR / "OUTPUT" / "jobs").resolve()
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+
+# Whole-region engines triggered by their own endpoints, each mapped to its
+# script and the run-flag overrides needed to skip layers with no DB data.
+ENGINE_SCRIPTS = {
+    "static": {
+        "script": "FFRM_static.py",
+        "result": "forest_fire_risk_map.tif",
+        "run_flags": {"FFRM_RUN_FHIST": "0"},
+    },
+    "dynamic": {
+        "script": "FFRM_dinamic.py",
+        "result": "forest_fire_risk_map_dinamico.tif",
+        "run_flags": {"FFRM_RUN_TWI": "0", "FFRM_RUN_LST": "0"},
+    },
+}
 
 COVERAGE_INPUT_RASTERS = {
     "DTM": BASE_DIR / "INPUT" / "DTM" / "DTM.tif",
@@ -394,24 +412,30 @@ def _available_data_coverage_geojson() -> dict[str, Any]:
     _write_cached_coverage(signature, coverage)
     return coverage
 
-def _job_relative_path(file_path: str) -> str | None:
+def _job_relative_path(file_path: str, root: Path = AOI_OUTPUT_ROOT) -> str | None:
     try:
         resolved = Path(file_path).resolve()
-        return resolved.relative_to(AOI_OUTPUT_ROOT).as_posix()
+        return resolved.relative_to(root).as_posix()
     except (ValueError, OSError):
         return None
 
 
-def _augment_with_urls(outputs: dict[str, str], request: Request | None) -> dict[str, Any]:
+def _augment_with_urls(
+    outputs: dict[str, str],
+    request: Request | None,
+    *,
+    root: Path = AOI_OUTPUT_ROOT,
+    url_prefix: str = "results",
+) -> dict[str, Any]:
     base_url = _public_base_url(request)
     urls: dict[str, str] = {}
     for key, value in outputs.items():
         if not isinstance(value, str):
             continue
-        rel = _job_relative_path(value)
+        rel = _job_relative_path(value, root)
         if rel is None:
             continue
-        urls[key] = f"{base_url}/results/{rel}" if base_url else f"/results/{rel}"
+        urls[key] = f"{base_url}/{url_prefix}/{rel}" if base_url else f"/{url_prefix}/{rel}"
     enriched: dict[str, Any] = dict(outputs)
     if urls:
         enriched["urls"] = urls
@@ -541,6 +565,117 @@ def _raise_aoi_http_error(exc: Exception) -> None:
         raise HTTPException(status_code=422, detail=detail) from exc
     raise HTTPException(status_code=500, detail=detail) from exc
 
+
+def _create_job_dir(payload: WildfireCalculationRequest) -> tuple[str, Path]:
+    """Build a per-request job directory named from the request IDs."""
+    raw = f"{payload.user_id}_{payload.model_id}_{payload.session_id}"
+    job_id = re.sub(r"[^A-Za-z0-9_-]", "_", raw).strip("_")[:120] or "job"
+    job_dir = JOBS_OUTPUT_ROOT / job_id
+    if job_dir.exists():
+        # Avoid clobbering a previous run for the same IDs.
+        job_id = f"{job_id}_{datetime.now(BERLIN_TZ).strftime('%Y%m%dT%H%M%S')}"
+        job_dir = JOBS_OUTPUT_ROOT / job_id
+    resolved = job_dir.resolve()
+    if resolved != JOBS_OUTPUT_ROOT and not str(resolved).startswith(str(JOBS_OUTPUT_ROOT) + os.sep):
+        raise ValueError("Invalid job identifier derived from request IDs.")
+    return job_id, resolved
+
+
+def _wildfire_clip_geometry_wgs84(payload: WildfireCalculationRequest):
+    """Boundary (WGS84) used to clip the datasets while exporting from the DB.
+
+    Raises ValueError (-> 422) when the request carries no boundary, which is
+    required for the whole-region static/dynamic engines.
+    """
+    projected = _wildfire_geometry(payload)  # EPSG:32629, includes buffer_distance
+    context_buffer_m = _wildfire_context_buffer(payload)
+    # Add the engines' internal 3000 m crop margin so the reconstructed data
+    # fully covers the area the engine later crops to.
+    processing = projected.buffer(context_buffer_m + 3000)
+    return reproject_geometry(processing, DEFAULT_PROJECTED_CRS, "EPSG:4326")
+
+
+def _run_engine_job(
+    payload: WildfireCalculationRequest,
+    engine: str,
+    request: Request | None,
+) -> dict[str, Any]:
+    """Reconstruct inputs from PostGIS into a per-request folder and run an engine."""
+    cfg = ENGINE_SCRIPTS[engine]
+    target_date = _wildfire_target_date(payload)
+    clip_geom = _wildfire_clip_geometry_wgs84(payload)
+
+    job_id, job_dir = _create_job_dir(payload)
+    input_dir = job_dir / "INPUT"
+    output_dir = job_dir / "OUTPUT"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    reconstruction = reconstruct_inputs(
+        input_dir,
+        engine=engine,
+        target_date=target_date,
+        clip_geom=clip_geom,
+        clip_geom_crs="EPSG:4326",
+    )
+
+    env = {
+        **os.environ,
+        "FFRM_BASE_DIR": str(job_dir),
+        "FFRM_OUTPUT_DIR": str(output_dir),
+        "MPLBACKEND": "Agg",
+        **cfg["run_flags"],
+    }
+    proc = subprocess.run(
+        ["python", cfg["script"]],
+        cwd=str(BASE_DIR),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    (output_dir / "engine.log").write_text(
+        f"returncode={proc.returncode}\n--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}\n"
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"{engine} engine failed (see engine.log):\n{proc.stderr[-2000:]}")
+
+    result_map = output_dir / cfg["result"]
+    if not result_map.is_file():
+        raise RuntimeError(
+            f"{engine} engine finished but {cfg['result']} was not produced.\n{proc.stdout[-1000:]}"
+        )
+
+    continuous = "mapa_final_dinamico.tif" if engine == "dynamic" else "mapa_final.tif"
+    outputs = {
+        "final_map": str(result_map),
+        "continuous_map": str(output_dir / continuous),
+        "job_dir": str(job_dir),
+    }
+    enriched = _augment_with_urls(outputs, request, root=JOBS_OUTPUT_ROOT, url_prefix="jobs")
+
+    response: dict[str, Any] = {
+        "status": "success",
+        "engine": engine,
+        "job_id": job_id,
+        "session_id": payload.session_id,
+        "target_date": target_date.isoformat(),
+        "reconstruction": reconstruction,
+        "outputs": enriched,
+    }
+
+    if payload.callback_url:
+        try:
+            zip_path = _zip_job_outputs(output_dir)
+            response["result_zip"] = str(zip_path)
+            response["callback"] = _post_result_callback(
+                payload.callback_url, zip_path, payload.session_id
+            )
+        except Exception as exc:  # noqa: BLE001 - report callback failure, keep result
+            response["callback_error"] = str(exc)
+
+    return response
+
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to STORCITO API. Use POST /run-dynamic or POST /run-static to trigger jobs."}
@@ -557,34 +692,27 @@ def status():
 
 
 @app.post("/run-dynamic")
-def run_dynamic():
+def run_dynamic(payload: WildfireCalculationRequest, request: Request):
     """
-    Runs the FFRM_dinamic.py script.
+    Reconstruct inputs from PostGIS (clipped to the request boundary) and run the
+    dynamic risk engine (FFRM_dinamic.py).
     """
     try:
-        # Run script as a subprocess
-        result = subprocess.run(["python", "FFRM_dinamic.py"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return {"status": "success", "output": result.stdout}
-        else:
-            return {"status": "error", "error": result.stderr}
+        return _run_engine_job(payload, "dynamic", request)
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        _raise_aoi_http_error(e)
+
 
 @app.post("/run-static")
-def run_static():
+def run_static(payload: WildfireCalculationRequest, request: Request):
     """
-    Runs the FFRM_estatic.py script.
+    Reconstruct inputs from PostGIS (clipped to the request boundary) and run the
+    whole-region static risk engine (FFRM_static.py).
     """
     try:
-        # Run script as a subprocess
-        result = subprocess.run(["python", "FFRM_estatic.py"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return {"status": "success", "output": result.stdout}
-        else:
-            return {"status": "error", "error": result.stderr}
+        return _run_engine_job(payload, "static", request)
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        _raise_aoi_http_error(e)
 
 
 @app.get("/available-static-dates")
@@ -659,6 +787,25 @@ def download_result(request_id: str, file_path: str):
 
     media_type = "image/tiff" if target.suffix.lower() in {".tif", ".tiff"} else None
     return FileResponse(target, media_type=media_type, filename=target.name)
+
+
+@app.get("/jobs/{job_id}/{file_path:path}")
+def download_job_result(job_id: str, file_path: str):
+    """Serve a file from a per-request engine job directory (OUTPUT/jobs)."""
+    try:
+        target = (JOBS_OUTPUT_ROOT / job_id / file_path).resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="Invalid result path.") from exc
+
+    job_root = (JOBS_OUTPUT_ROOT / job_id).resolve()
+    if not str(target).startswith(str(job_root) + os.sep) and target != job_root:
+        raise HTTPException(status_code=400, detail="Invalid result path.")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Result not found.")
+
+    media_type = "image/tiff" if target.suffix.lower() in {".tif", ".tiff"} else None
+    return FileResponse(target, media_type=media_type, filename=target.name)
+
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8090, reload=True)

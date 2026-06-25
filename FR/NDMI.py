@@ -1,9 +1,28 @@
-import os
-import rasterio
 import numpy as np
-import matplotlib.pyplot as plt
+import rasterio
 
-def Ndmi(input_band8, input_band11):
+from pathlib import Path
+
+from FR.rutinas.setup import default_imshow, save_file
+
+
+def Ndmi(
+    input_band8: str | Path,
+    input_band11: str | Path,
+    output_folder: str | Path = "OUTPUT",
+    export_image: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate NDMI (Normalized Difference Moisture Index) from Sentinel-2 bands.
+
+    Args:
+        input_band8: Path to Band 8 (NIR) raster file
+        input_band11: Path to Band 11 (SWIR) raster file
+        output_folder: Output directory for exported files. Defaults to 'OUTPUT'
+        export_image: Whether to save results as GeoTIFF/PNG. Defaults to False
+
+    Returns:
+        Tuple of (ndmi_array, reclassified_risk_array) where risk is scaled 1-5
+    """
     print('NDMI Layer processing...')
 
     with rasterio.open(input_band8) as b8_src:
@@ -16,7 +35,7 @@ def Ndmi(input_band8, input_band11):
     np.seterr(divide='ignore', invalid='ignore')
     ndmi = (nir_band - swir_band) / (nir_band + swir_band)
 
-    # Reclasification: assign values 1-5 for risk levels
+    # Reclassification: assign values 1-5 for risk levels
     reclasificado = np.zeros_like(ndmi, dtype='int32')
     reclasificado[ndmi <= -0.20] = 5
     reclasificado[(ndmi > -0.20) & (ndmi <= 0.00)] = 4
@@ -24,74 +43,14 @@ def Ndmi(input_band8, input_band11):
     reclasificado[(ndmi > 0.20) & (ndmi <= 0.40)] = 2
     reclasificado[ndmi > 0.40] = 1
 
-    while True:
-        choice = input("Do you want to save the images? (y/n): ").lower().strip()
-        if choice in ('y', 'n'):
-            break
-        print("Invalid input. Please enter 'y' or 'n'")
+    fig1, _ = default_imshow(ndmi, 'NDMI')
+    fig2, _ = default_imshow(reclasificado, 'NDMI Risk Map')
 
-    if choice == 'y':
-        tiff_dir = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\re'
-        png_dir = r'C:\Users\Mateo G\Desktop\STORCITO\Salida Datos\NDMI'
-        os.makedirs(tiff_dir, exist_ok=True)
-        os.makedirs(png_dir, exist_ok=True)
-
-        # Save NDMI continuous
-        meta_ndmi = meta_ref.copy()
-        meta_ndmi.update(driver='GTiff', dtype='float32', count=1)
-        ndmi_tiff = os.path.join(tiff_dir, 'ndmi.tiff')
-        ndmi_tif = os.path.join(tiff_dir, 'ndmi.tif')
-
-        with rasterio.open(ndmi_tiff, 'w', **meta_ndmi) as dst:
-            dst.write(ndmi.astype('float32'), 1)
-        with rasterio.open(ndmi_tif, 'w', **meta_ndmi) as dst:
-            dst.write(ndmi.astype('float32'), 1)
-
-        # Save reclassified
-        meta_recl = meta_ref.copy()
-        meta_recl.update(driver='GTiff', dtype='int32', count=1)
-        recl_tiff = os.path.join(tiff_dir, 'ndmi_risk_map.tiff')
-        recl_tif = os.path.join(tiff_dir, 'ndmi_risk_map.tif')
-
-        with rasterio.open(recl_tiff, 'w', **meta_recl) as dst:
-            dst.write(reclasificado.astype('int32'), 1)
-        with rasterio.open(recl_tif, 'w', **meta_recl) as dst:
-            dst.write(reclasificado.astype('int32'), 1)
-
-        # Save PNGs
-        plt.figure(figsize=(8, 6))
-        plt.imshow(ndmi, cmap='RdYlGn')
-        plt.colorbar()
-        plt.title('NDMI')
-        plt.tight_layout()
-        plt.savefig(os.path.join(png_dir, 'ndmi.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-
-        plt.figure(figsize=(8, 6))
-        plt.imshow(reclasificado, cmap='Reds')
-        plt.colorbar()
-        plt.title('NDMI Risk Map')
-        plt.tight_layout()
-        plt.savefig(os.path.join(png_dir, 'ndmi_risk_map.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-
-        print(f"Images saved in:\n - Rasters: {tiff_dir}\n - PNGs: {png_dir}")
-    else:
-        print("Images not saved")
-
-    plt.figure(figsize=(8, 6))
-    plt.imshow(ndmi, cmap='RdYlGn')
-    plt.colorbar()
-    plt.title('NDMI')
-    plt.tight_layout()
-    plt.show()
-
-    plt.figure(figsize=(8, 6))
-    plt.imshow(reclasificado, cmap='Reds')
-    plt.colorbar()
-    plt.title('NDMI Risk Map')
-    plt.tight_layout()
-    plt.show()
+    if export_image:
+        save_file(ndmi, 'estatic', output_folder, meta_ref,
+                  'NDMI', extensions=['tif', 'tiff', 'png'], fig=fig1)
+        save_file(reclasificado, 'estatic', output_folder, meta_ref,
+                  'NDMI_Risk_Map', extensions=['tif', 'tiff', 'png'], fig=fig2)
 
     print('NDMI Layer completed')
-    return
+    return ndmi, reclasificado

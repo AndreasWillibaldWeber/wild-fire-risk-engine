@@ -15,7 +15,9 @@ from scipy.interpolate import griddata
 import re
 
 
-FWI_DATE_RE = re.compile(r"_(\d{8})_\d{4}\.nc4\.nc$")
+# Match the 8-digit date in either the WRF naming scheme (wrf_arw_YYYYMMDD.nc)
+# or the legacy GEFS scheme (..._YYYYMMDD_HHMM.nc4.nc).
+FWI_DATE_RE = re.compile(r"_(\d{8})(?:_\d{4}\.nc4)?\.nc$")
 
 
 def _fwi_file_date(file: Path) -> date:
