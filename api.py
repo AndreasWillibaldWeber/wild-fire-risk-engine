@@ -13,7 +13,7 @@ from functools import lru_cache
 # `make restart` to pick up code changes.
 import pyogrio  # noqa: F401
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -900,6 +900,78 @@ def download_job_result(job_id: str, file_path: str):
 
     media_type = "image/tiff" if target.suffix.lower() in {".tif", ".tiff"} else None
     return FileResponse(target, media_type=media_type, filename=target.name)
+
+
+def _raise_db_http_error(exc: Exception) -> None:
+    """Map db_catalog errors to HTTP responses (no db_catalog import needed here)."""
+    if type(exc).__name__ == "UnknownTable":
+        raise HTTPException(status_code=404, detail=f"Unknown table: {exc}") from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, ModuleNotFoundError):
+        raise HTTPException(
+            status_code=503,
+            detail="Database driver unavailable (psycopg2 not installed; rebuild the image).",
+        ) from exc
+    raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/db/tables")
+def db_list_tables():
+    """List the public PostGIS tables (vector / raster) with kind, srid and row estimate."""
+    try:
+        from FR.db_catalog import list_tables
+
+        return {"tables": list_tables()}
+    except Exception as exc:  # noqa: BLE001
+        _raise_db_http_error(exc)
+
+
+@app.get("/db/tables/{table}")
+def db_describe_table(table: str):
+    """Describe one table: columns, srid, exact row count, WGS84 extent, region/date metadata."""
+    try:
+        from FR.db_catalog import describe_table
+
+        return describe_table(table)
+    except Exception as exc:  # noqa: BLE001
+        _raise_db_http_error(exc)
+
+
+@app.get("/db/vector/{table}")
+def db_vector_table(
+    table: str,
+    limit: int = Query(default=100, ge=1, le=1000),
+    bbox: str | None = Query(default=None, description="minLon,minLat,maxLon,maxLat (WGS84)"),
+    region: str | None = Query(default=None),
+):
+    """Return a vector table as a GeoJSON FeatureCollection (WGS84), capped by `limit`."""
+    try:
+        from FR.db_catalog import vector_geojson
+
+        parsed_bbox = None
+        if bbox is not None:
+            parts = [p for p in bbox.split(",") if p.strip() != ""]
+            if len(parts) != 4:
+                raise ValueError("bbox must be 'minLon,minLat,maxLon,maxLat'.")
+            try:
+                parsed_bbox = tuple(float(p) for p in parts)
+            except ValueError as exc:
+                raise ValueError("bbox values must be numeric.") from exc
+        return vector_geojson(table, limit=limit, bbox=parsed_bbox, region=region)
+    except Exception as exc:  # noqa: BLE001
+        _raise_db_http_error(exc)
+
+
+@app.get("/db/raster/{table}")
+def db_raster_table(table: str):
+    """Summarise a raster table: tile count, srid, bands, WGS84 extent, regions/dates."""
+    try:
+        from FR.db_catalog import raster_metadata
+
+        return raster_metadata(table)
+    except Exception as exc:  # noqa: BLE001
+        _raise_db_http_error(exc)
 
 
 if __name__ == "__main__":
