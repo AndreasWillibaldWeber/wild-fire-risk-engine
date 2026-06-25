@@ -57,6 +57,18 @@ psql_in() {
         psql -U "${PGUSER}" -d "${PGDATABASE}" -v ON_ERROR_STOP=1 "$@" )
 }
 
+# Fail with a clear message if a base table the recurring loads append into is
+# missing (i.e. the one-time bulk load has not been run yet).
+require_table() {
+    local t="$1"
+    local exists
+    exists="$(psql_in -tA -c "SELECT to_regclass('public.${t}') IS NOT NULL;")"
+    if [[ "${exists}" != "t" ]]; then
+        die "Required table public.${t} does not exist. Run the one-time bulk load first \
+(../scripts/load-ndxi.sh creates s2_*, ../scripts/load-fwi.sh creates fwi_*)."
+    fi
+}
+
 # --- logging ----------------------------------------------------------------
 log() { printf '%s [galicia] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 die() { printf '%s [galicia][ERROR] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; exit 1; }

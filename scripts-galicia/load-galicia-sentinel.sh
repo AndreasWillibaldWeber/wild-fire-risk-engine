@@ -23,6 +23,7 @@ for band in B04 B08 B8A B11; do
     fname="galicia_${band_lc}_${FROM_TOKEN}_${TO_TOKEN}.tif"
     host_tif="${REPO_ROOT}/INPUT/NDXI/galicia/${fname}"
     [[ -s "${host_tif}" ]] || die "Clipped band missing: ${host_tif} (run download first)"
+    require_table "${table}"
 
     log "Preparing ${table} (drop constraints, add metadata cols, clear prior ${REGION} ${DATE_FROM}..${DATE_TO})"
     psql_in <<SQL

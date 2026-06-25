@@ -34,6 +34,7 @@ for sd in "${subs[@]}"; do
 
     # Skip pure coordinate variables if present as subdatasets.
     case "${var_lc}" in lon|lat|longitude|latitude|x|y) continue ;; esac
+    require_table "${table}"
 
     log "Preparing ${table} (drop constraints, add cols, clear prior ${REGION} ${TARGET_DATE})"
     psql_in <<SQL
