@@ -510,6 +510,23 @@ def _run_wildfire_payload(payload: WildfireCalculationRequest, request: Request 
     )
     enriched_outputs = _augment_with_urls(outputs, request)
 
+    db_info, db_error = _store_results_to_db(
+        outputs,
+        metadata={
+            "job_id": outputs.get("request_id"),
+            "session_id": payload.session_id,
+            "user_id": payload.user_id,
+            "model_id": payload.model_id,
+            "engine": "static_aoi",
+            "calculation_mode": calculation_mode,
+            "request_type": "wildfire_payload",
+            "target_date": target_date.isoformat(),
+            "country": payload.country,
+            "lkr": payload.lkr,
+        },
+        aoi_wgs84=reproject_geometry(output_aoi, DEFAULT_PROJECTED_CRS, "EPSG:4326"),
+    )
+
     callback_info: dict[str, Any] | None = None
     callback_error: str | None = None
     if payload.callback_url:
@@ -541,7 +558,39 @@ def _run_wildfire_payload(payload: WildfireCalculationRequest, request: Request 
         response["callback"] = callback_info
     if callback_error is not None:
         response["callback_error"] = callback_error
+    if db_info is not None:
+        response["db_store"] = db_info
+    if db_error is not None:
+        response["db_store_error"] = db_error
     return response
+
+
+def _store_results_to_db(
+    outputs: dict[str, Any],
+    *,
+    metadata: dict[str, Any],
+    aoi_wgs84=None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Store the finished result maps into PostGIS (best-effort).
+
+    Controlled by STORCITO_STORE_RESULTS (default on). Never raises: a storage
+    failure is reported back to the caller as an error string so the simulation
+    response still succeeds, mirroring the callback-error handling.
+    """
+    flag = os.getenv("STORCITO_STORE_RESULTS", "1").strip().lower()
+    if flag in {"0", "false", "no", "off"}:
+        return None, None
+    try:
+        from FR.db_store import store_result_maps
+
+        aoi_geojson = json.dumps(mapping(aoi_wgs84)) if aoi_wgs84 is not None else None
+        info = store_result_maps(outputs, metadata=metadata, aoi_geojson=aoi_geojson)
+        return info, None
+    except Exception as exc:  # noqa: BLE001 - report and keep the result
+        msg = f"{type(exc).__name__}: {exc}"
+        logger.warning("STORCITO result DB store failed: %s", msg)
+        print(f"[STORCITO DB] store failed: {msg}", flush=True)
+        return None, str(exc)
 
 
 def _raise_aoi_http_error(exc: Exception) -> None:
@@ -663,6 +712,29 @@ def _run_engine_job(
         "outputs": enriched,
     }
 
+    db_info, db_error = _store_results_to_db(
+        outputs,
+        metadata={
+            "job_id": job_id,
+            "session_id": payload.session_id,
+            "user_id": payload.user_id,
+            "model_id": payload.model_id,
+            "engine": engine,
+            "calculation_mode": engine,
+            "request_type": "engine_job",
+            "target_date": target_date.isoformat(),
+            "country": payload.country,
+            "lkr": payload.lkr,
+        },
+        aoi_wgs84=reproject_geometry(
+            _wildfire_geometry(payload), DEFAULT_PROJECTED_CRS, "EPSG:4326"
+        ),
+    )
+    if db_info is not None:
+        response["db_store"] = db_info
+    if db_error is not None:
+        response["db_store_error"] = db_error
+
     if payload.callback_url:
         try:
             zip_path = _zip_job_outputs(output_dir)
@@ -742,7 +814,30 @@ def run_static_aoi_request(payload: StaticAOIRequest, request: Request):
             buffer_m=payload.buffer_m,
             context_buffer_m=payload.context_buffer_m,
         )
-        return {"status": "success", "outputs": _augment_with_urls(outputs, request)}
+        result: dict[str, Any] = {
+            "status": "success",
+            "outputs": _augment_with_urls(outputs, request),
+        }
+        db_info, db_error = _store_results_to_db(
+            outputs,
+            metadata={
+                "job_id": outputs.get("request_id"),
+                "user_id": None,
+                "model_id": None,
+                "session_id": None,
+                "engine": "static_aoi",
+                "calculation_mode": "static",
+                "request_type": "point",
+                "target_date": payload.date.isoformat(),
+                "longitude": payload.longitude,
+                "latitude": payload.latitude,
+            },
+        )
+        if db_info is not None:
+            result["db_store"] = db_info
+        if db_error is not None:
+            result["db_store_error"] = db_error
+        return result
     except Exception as e:
         _raise_aoi_http_error(e)
 
