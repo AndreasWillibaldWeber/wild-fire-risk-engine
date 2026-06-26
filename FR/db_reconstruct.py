@@ -101,34 +101,35 @@ def export_raster_table(
     *,
     clip_geom: BaseGeometry | None = None,
     clip_geom_crs: str = "EPSG:4326",
+    target_srs: str | None = None,
 ) -> Path:
-    """Export a PostGIS raster table to a GeoTIFF, optionally clipped to a geometry.
+    """Export a PostGIS raster table to a GeoTIFF, optionally clipped/reprojected.
 
-    The output keeps the source raster's CRS. When ``clip_geom`` is given it is
-    used as a gdalwarp cutline (GDAL reprojects it to the raster CRS), so the
-    geometry may be supplied in any CRS (default WGS84).
+    When ``clip_geom`` is given it is used as a gdalwarp cutline (GDAL reprojects
+    it to the raster CRS), so the geometry may be supplied in any CRS (default
+    WGS84). When ``target_srs`` is given the output is reprojected to that CRS;
+    otherwise it keeps the source raster's CRS.
     """
     dest_tif = Path(dest_tif)
     dest_tif.parent.mkdir(parents=True, exist_ok=True)
     src = _gdal_raster_dsn(table)
 
     if clip_geom is None:
-        _run(["gdal_translate", "-of", "GTiff", src, str(dest_tif)])
+        if target_srs is None:
+            _run(["gdal_translate", "-of", "GTiff", src, str(dest_tif)])
+        else:
+            _run(["gdalwarp", "-of", "GTiff", "-t_srs", target_srs,
+                  "-overwrite", src, str(dest_tif)])
         return dest_tif
 
     cutline = _write_cutline(clip_geom, clip_geom_crs, dest_tif.parent)
     try:
-        _run(
-            [
-                "gdalwarp",
-                "-of", "GTiff",
-                "-cutline", str(cutline),
-                "-crop_to_cutline",
-                "-overwrite",
-                src,
-                str(dest_tif),
-            ]
-        )
+        cmd = ["gdalwarp", "-of", "GTiff",
+               "-cutline", str(cutline), "-crop_to_cutline", "-overwrite"]
+        if target_srs is not None:
+            cmd += ["-t_srs", target_srs]
+        cmd += [src, str(dest_tif)]
+        _run(cmd)
     finally:
         cutline.unlink(missing_ok=True)
     return dest_tif
@@ -141,8 +142,14 @@ def export_vector_table(
     clip_geom: BaseGeometry | None = None,
     clip_geom_crs: str = "EPSG:4326",
     t_srs: str | None = None,
+    select_sql: str | None = None,
 ) -> Path:
-    """Export a PostGIS vector table to an ESRI Shapefile, optionally clipped."""
+    """Export a PostGIS vector table to an ESRI Shapefile, optionally clipped.
+
+    ``select_sql`` is an optional OGR SQL statement (must include the ``geom``
+    column) used instead of the whole table -- e.g. to re-alias columns to the
+    casing the engine expects, since PostgreSQL lowercases identifiers on import.
+    """
     dest_shp = Path(dest_shp)
     dest_shp.parent.mkdir(parents=True, exist_ok=True)
     src = _ogr_dsn()
@@ -157,7 +164,10 @@ def export_vector_table(
         # -clipsrc with a datasource clips to its geometries (both in clip_geom_crs).
         cmd += ["-clipsrc", str(cutline)]
 
-    cmd += [str(dest_shp), src, table]
+    if select_sql is not None:
+        cmd += ["-sql", select_sql, str(dest_shp), src]
+    else:
+        cmd += [str(dest_shp), src, table]
     try:
         _run(cmd)
     finally:
@@ -190,6 +200,19 @@ def reconstruct_fwi(target_date, dest_fwi_dir: str | Path) -> list[Path]:
 # Each entry: (kind, table, relative destination path under INPUT/)
 _RASTER = "raster"
 _VECTOR = "vector"
+
+# The whole-region engines work in a projected (metric) CRS -- FR.infra computes
+# pixel counts as extent/25 m and FR.cropped reprojects to EPSG:32629. The stored
+# rasters are geographic (dtm/s2_* = 4326) or a different projection (fuels =
+# 25830), so reconstructed rasters are reprojected to this CRS for the engine.
+ENGINE_RASTER_SRS = "EPSG:32629"
+
+# PostgreSQL lowercases identifiers on import, but the engine modules expect the
+# original shapefile column casing. Re-alias on export (the SELECT must include
+# the geometry column so OGR carries it through).
+_VECTOR_SELECT_SQL: dict[str, str] = {
+    "wui_u2018_clc2018_v2020_20u1": 'SELECT geom, code_18 AS "Code_18" FROM wui_u2018_clc2018_v2020_20u1',
+}
 
 _ENGINE_PLANS: dict[str, list[tuple[str, str, str]]] = {
     "static": [
@@ -238,9 +261,11 @@ def reconstruct_inputs(
     for kind, table, rel in _ENGINE_PLANS[engine]:
         dest = dest_input_dir / rel
         if kind == _RASTER:
-            export_raster_table(table, dest, clip_geom=clip_geom, clip_geom_crs=clip_geom_crs)
+            export_raster_table(table, dest, clip_geom=clip_geom,
+                                clip_geom_crs=clip_geom_crs, target_srs=ENGINE_RASTER_SRS)
         else:
-            export_vector_table(table, dest, clip_geom=clip_geom, clip_geom_crs=clip_geom_crs)
+            export_vector_table(table, dest, clip_geom=clip_geom, clip_geom_crs=clip_geom_crs,
+                                select_sql=_VECTOR_SELECT_SQL.get(table))
         produced[rel] = str(dest)
 
     return {

@@ -43,7 +43,7 @@ def _table_kind(cur, table: str) -> dict[str, Any] | None:
         """
         SELECT t.table_name,
                CASE WHEN g.f_table_name IS NOT NULL THEN 'vector'
-                    WHEN r.r_table_name IS NOT NULL THEN 'raster'
+                    WHEN r.r_table_name IS NOT NULL OR rc.has_raster THEN 'raster'
                     ELSE 'table' END                       AS kind,
                g.type                                      AS geom_type,
                g.f_geometry_column                         AS geom_column,
@@ -52,6 +52,13 @@ def _table_kind(cur, table: str) -> dict[str, Any] | None:
         FROM information_schema.tables t
         LEFT JOIN geometry_columns g ON g.f_table_name = t.table_name
         LEFT JOIN raster_columns  r ON r.r_table_name = t.table_name
+        -- Also detect raster tables that carry a raster column but have no
+        -- raster_columns entry (e.g. simulation_results, written via
+        -- ST_FromGDALRaster without AddRasterConstraints).
+        LEFT JOIN (SELECT table_name, true AS has_raster
+                   FROM information_schema.columns
+                   WHERE table_schema = 'public' AND udt_name = 'raster'
+                   GROUP BY table_name) rc ON rc.table_name = t.table_name
         WHERE t.table_schema = 'public'
           AND t.table_type = 'BASE TABLE'
           AND t.table_name = %s
@@ -79,6 +86,15 @@ def _columns(cur, table: str) -> list[dict[str, str]]:
 
 def _column_names(cur, table: str) -> set[str]:
     return {c["name"] for c in _columns(cur, table)}
+
+
+def _has_raster_column(cur, table: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = %s AND udt_name = 'raster' LIMIT 1",
+        (table,),
+    )
+    return cur.fetchone() is not None
 
 
 def _bbox4326(cur, geom_col: str, table: str, srid: int):
@@ -137,7 +153,7 @@ def list_tables() -> list[dict[str, Any]]:
                 """
                 SELECT t.table_name AS name,
                        CASE WHEN g.f_table_name IS NOT NULL THEN 'vector'
-                            WHEN r.r_table_name IS NOT NULL THEN 'raster'
+                            WHEN r.r_table_name IS NOT NULL OR rc.has_raster THEN 'raster'
                             ELSE 'table' END               AS kind,
                        COALESCE(g.type, '')                AS geom_type,
                        COALESCE(g.srid, r.srid, 0)         AS srid,
@@ -145,6 +161,10 @@ def list_tables() -> list[dict[str, Any]]:
                 FROM information_schema.tables t
                 LEFT JOIN geometry_columns g ON g.f_table_name = t.table_name
                 LEFT JOIN raster_columns  r ON r.r_table_name = t.table_name
+                LEFT JOIN (SELECT table_name, true AS has_raster
+                           FROM information_schema.columns
+                           WHERE table_schema = 'public' AND udt_name = 'raster'
+                           GROUP BY table_name) rc ON rc.table_name = t.table_name
                 LEFT JOIN pg_class c ON c.relname = t.table_name
                      AND c.relnamespace = 'public'::regnamespace
                 WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
@@ -279,7 +299,10 @@ def raster_metadata(table: str) -> dict[str, Any]:
             meta = _table_kind(cur, table)
             if meta is None:
                 raise UnknownTable(table)
-            if meta["kind"] != "raster":
+            # Accept any table carrying a raster column, even hybrids like
+            # simulation_results (which also has an aoi geometry, so its "kind"
+            # is reported as vector).
+            if not _has_raster_column(cur, table):
                 raise ValueError(f"Table '{table}' is not a raster table.")
             colnames = _column_names(cur, table)
 

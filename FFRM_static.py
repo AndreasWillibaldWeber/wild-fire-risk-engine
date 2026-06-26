@@ -239,14 +239,12 @@ outputs = _combine_layers(
 )
 
 print(f"Mapa final guardado exitosamente en:\n '{outputs['final_map']}'")
-test
 # ==========================================
 # 4. LIMPIEZA DE CARPETA INTERMEDIA
-test# ==========================================
+# ==========================================
 print("\nRealizando limpieza de archivos temporales...")
 for folder in [output_folder_cropped]:
     if os.path.exists(folder):
         shutil.rmtree(folder)
         print(f" - Carpeta temporal eliminada: {folder}")
-test
 print("\n¡Proceso finalizado con éxito!")
