@@ -1,6 +1,12 @@
 import os
 import shutil
 
+# Force geopandas' fiona engine: pyogrio's GDAL_DATA probe fails when this script
+# runs as the API's engine subprocess (it works standalone), so reading the
+# reconstructed shapefiles via the default pyogrio engine errors. fiona is robust.
+import geopandas as _gpd
+_gpd.options.io_engine = "fiona"
+
 import matplotlib
 
 matplotlib.use("Agg")
